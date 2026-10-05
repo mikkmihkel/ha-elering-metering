@@ -122,7 +122,7 @@ def test_sum_for_period_dst_spring_forward_23h_day():
 
 def _meter() -> MeteringPoint:
     return MeteringPoint(
-        eic="38ZEE-00720089-N",
+        eic="38ZEE-00000001-A",
         commodity_type=CommodityType.ELECTRICITY,
         periods=[Period(start=datetime(2019, 7, 27, 21, tzinfo=UTC), end=None)],
     )
@@ -131,7 +131,7 @@ def _meter() -> MeteringPoint:
 def test_lagging_sensor_state_with_data():
     coordinator = MagicMock()
     coordinator.cache = {
-        ("38ZEE-00720089-N", Kind.CONSUMPTION): [
+        ("38ZEE-00000001-A", Kind.CONSUMPTION): [
             _ival(datetime(2026, 4, 28, h, tzinfo=UTC), 1.0) for h in range(24)
         ]
     }
@@ -147,7 +147,7 @@ def test_lagging_sensor_state_with_data():
         multi_meter=False,
     )
 
-    assert sensor.unique_id == "estfeed_home_consumption_yesterday_089n"
+    assert sensor.unique_id == "estfeed_home_consumption_yesterday_001a"
     assert sensor.device_class == SensorDeviceClass.ENERGY
     assert sensor.native_unit_of_measurement == UnitOfEnergy.KILO_WATT_HOUR
 
@@ -179,7 +179,7 @@ def test_cumulative_sensor_delegates_to_coordinator():
     coordinator = MagicMock()
     coordinator.slug = "home"
     coordinator.baselines = {
-        ("38ZEE-00720089-N", Kind.CONSUMPTION): CumulativeBaseline(
+        ("38ZEE-00000001-A", Kind.CONSUMPTION): CumulativeBaseline(
             reset_at=datetime(2026, 5, 18, 12, tzinfo=UTC)
         )
     }
@@ -189,9 +189,9 @@ def test_cumulative_sensor_delegates_to_coordinator():
 
     assert sensor.available is True
     assert sensor.native_value == 12.345
-    coordinator.cumulative_since_reset.assert_called_with("38ZEE-00720089-N", Kind.CONSUMPTION)
+    coordinator.cumulative_since_reset.assert_called_with("38ZEE-00000001-A", Kind.CONSUMPTION)
     assert sensor.last_reset == datetime(2026, 5, 18, 12, tzinfo=UTC)
-    assert sensor.unique_id == "estfeed_home_consumption_cumulative_089n"
+    assert sensor.unique_id == "estfeed_home_consumption_cumulative_001a"
 
 
 def test_cumulative_sensor_unavailable_before_baseline_exists():
@@ -212,7 +212,7 @@ def test_cumulative_sensor_reads_zero_immediately_after_reset():
     """Right after the user presses reset, no cache intervals are past
     reset_at — coordinator returns 0.0 and the sensor surfaces that."""
     coordinator = MagicMock()
-    key = ("38ZEE-00720089-N", Kind.CONSUMPTION)
+    key = ("38ZEE-00000001-A", Kind.CONSUMPTION)
     coordinator.baselines = {key: CumulativeBaseline(reset_at=datetime(2026, 5, 18, tzinfo=UTC))}
     coordinator.cumulative_since_reset.return_value = 0.0
     coordinator.slug = "home"
@@ -224,7 +224,7 @@ def test_cumulative_sensor_reads_zero_immediately_after_reset():
 def test_latest_interval_sensor_returns_max_period_start():
     coordinator = MagicMock()
     coordinator.cache = {
-        ("38ZEE-00720089-N", Kind.CONSUMPTION): [
+        ("38ZEE-00000001-A", Kind.CONSUMPTION): [
             _ival(datetime(2026, 4, 28, h, tzinfo=UTC), 1.0) for h in range(3)
         ]
     }

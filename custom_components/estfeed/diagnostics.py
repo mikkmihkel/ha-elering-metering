@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from .const import CONF_CLIENT_ID, CONF_CLIENT_SECRET, DOMAIN
 from .coordinator import EstfeedCoordinator
 from .statistics import eic_suffix
+from .utils import mask_eics
 
 _REDACT_KEYS = {CONF_CLIENT_ID, CONF_CLIENT_SECRET}
 
@@ -36,7 +37,7 @@ async def async_get_config_entry_diagnostics(
         },
         "coordinator": {
             "last_update_success": coordinator.last_update_success,
-            "last_exception": str(coordinator.last_exception)
+            "last_exception": mask_eics(str(coordinator.last_exception))
             if coordinator.last_exception
             else None,
             "intervals_cached_per_meter": {
@@ -67,7 +68,9 @@ async def async_get_config_entry_diagnostics(
                 for m in coordinator.meters
                 for cstream in coordinator.cost_streams_for(m)
             ],
-            "last_nps_error": coordinator.last_nps_error,
+            "last_nps_error": mask_eics(coordinator.last_nps_error)
+            if coordinator.last_nps_error
+            else None,
             "nps_cache_size": coordinator.nps_cache_size,
             "nps_cache_recent": nps_cache_recent,
         },

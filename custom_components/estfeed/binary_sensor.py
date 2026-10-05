@@ -15,6 +15,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .api import MeteringPoint
 from .const import ATTRIBUTION, DATA_FRESH_THRESHOLD, DOMAIN
 from .coordinator import EstfeedCoordinator
+from .entity import meter_device_info
 from .statistics import eic_suffix
 
 
@@ -34,12 +35,7 @@ class DataFreshBinarySensor(CoordinatorEntity[EstfeedCoordinator], BinarySensorE
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._meter.eic)},
-            name=f"{self.coordinator.slug} ({self._meter.eic})",
-            manufacturer="Elering Estfeed",
-            model=self._meter.commodity_type.value,
-        )
+        return meter_device_info(self.coordinator, self._meter)
 
     @property
     def is_on(self) -> bool | None:

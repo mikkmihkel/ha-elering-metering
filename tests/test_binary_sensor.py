@@ -18,7 +18,7 @@ from custom_components.estfeed.const import CommodityType, Kind
 
 def _meter() -> MeteringPoint:
     return MeteringPoint(
-        eic="38ZEE-00720089-N",
+        eic="38ZEE-00000001-A",
         commodity_type=CommodityType.ELECTRICITY,
         periods=[Period(start=datetime(2019, 7, 27, 21, tzinfo=UTC), end=None)],
     )
@@ -38,7 +38,7 @@ def _ival(t: datetime) -> AccountingInterval:
 def test_data_fresh_when_recent():
     coordinator = MagicMock()
     coordinator.cache = {
-        ("38ZEE-00720089-N", Kind.CONSUMPTION): [_ival(datetime(2026, 4, 28, 23, tzinfo=UTC))]
+        ("38ZEE-00000001-A", Kind.CONSUMPTION): [_ival(datetime(2026, 4, 28, 23, tzinfo=UTC))]
     }
     coordinator.last_update_success = True
     coordinator.slug = "home"
@@ -50,7 +50,7 @@ def test_data_fresh_when_recent():
 def test_data_stale_when_older_than_threshold():
     coordinator = MagicMock()
     coordinator.cache = {
-        ("38ZEE-00720089-N", Kind.CONSUMPTION): [_ival(datetime(2026, 4, 28, 0, tzinfo=UTC))]
+        ("38ZEE-00000001-A", Kind.CONSUMPTION): [_ival(datetime(2026, 4, 28, 0, tzinfo=UTC))]
     }
     coordinator.last_update_success = True
     coordinator.slug = "home"

@@ -7,12 +7,24 @@ from datetime import UTC, datetime
 import pytest
 
 from custom_components.estfeed.api import AccountingInterval
-from custom_components.estfeed.const import Kind
+from custom_components.estfeed.const import (
+    CONF_MARGIN_EUR_PER_KWH,
+    CONF_PRODUCTION_FEE_EUR_PER_KWH,
+    CONF_PRODUCTION_VAT,
+    CONF_VAT_MODE,
+    CONF_VAT_PERCENT,
+    VAT_MODE_CUSTOM,
+    VAT_MODE_ESTONIA,
+    Kind,
+)
 from custom_components.estfeed.pricing import (
-    apply_tariff,
+    PricingConfig,
     compute_cost_rows,
     compute_cost_rows_from_hourly,
+    consumption_price,
+    estonia_vat_percent,
     make_tariff,
+    production_price,
 )
 
 
@@ -31,48 +43,99 @@ def _interval(
     )
 
 
-def test_apply_tariff_vat_only():
-    # 0.05 €/kWh * (1 + 0.22) = 0.061
-    assert apply_tariff(0.05, vat_percent=22.0, margin_eur_per_kwh=0.0) == pytest.approx(0.061)
+_HOUR = datetime(2026, 5, 21, 10, tzinfo=UTC)
 
 
-def test_apply_tariff_margin_only():
-    # 0.05 + 0.007 margin, no VAT
-    assert apply_tariff(0.05, vat_percent=0.0, margin_eur_per_kwh=0.007) == pytest.approx(0.057)
+def test_consumption_price_vat_only():
+    # 0.05 €/kWh * 1.24 = 0.062
+    assert consumption_price(0.05, vat_percent=24.0, margin=0.0) == pytest.approx(0.062)
 
 
-def test_apply_tariff_vat_and_margin():
-    # 0.05 * 1.22 + 0.007 = 0.068
-    assert apply_tariff(0.05, vat_percent=22.0, margin_eur_per_kwh=0.007) == pytest.approx(0.068)
+def test_consumption_price_margin_only():
+    assert consumption_price(0.05, vat_percent=0.0, margin=0.007) == pytest.approx(0.057)
 
 
-def test_apply_tariff_negative_margin_for_discount():
-    # promotional discount: net rate below spot
-    assert apply_tariff(0.05, vat_percent=0.0, margin_eur_per_kwh=-0.01) == pytest.approx(0.04)
+def test_consumption_price_vat_applies_to_margin():
+    # (0.05 + 0.005) * 1.24 = 0.0682 — the margin is entered excluding VAT
+    assert consumption_price(0.05, vat_percent=24.0, margin=0.005) == pytest.approx(0.0682)
 
 
-def test_apply_tariff_zero_spot():
-    # NPS hour with 0 €/kWh: still picks up margin (VAT on zero is zero)
-    assert apply_tariff(0.0, vat_percent=22.0, margin_eur_per_kwh=0.005) == pytest.approx(0.005)
+def test_consumption_price_negative_margin_for_discount():
+    assert consumption_price(0.05, vat_percent=0.0, margin=-0.01) == pytest.approx(0.04)
 
 
-def test_apply_tariff_negative_spot():
-    # NPS occasionally goes negative; tariff math should still work
-    assert apply_tariff(-0.02, vat_percent=22.0, margin_eur_per_kwh=0.005) == pytest.approx(
-        -0.02 * 1.22 + 0.005
+def test_consumption_price_negative_spot():
+    # NPS occasionally goes negative; the formula must pass it through.
+    assert consumption_price(-0.02, vat_percent=24.0, margin=0.005) == pytest.approx(
+        (-0.02 + 0.005) * 1.24
     )
 
 
-def test_make_tariff_returns_callable():
-    tariff = make_tariff(vat_percent=22.0, margin_eur_per_kwh=0.007)
-    assert callable(tariff)
-    assert tariff(0.05) == pytest.approx(0.068)
+def test_production_price_deducts_fee():
+    assert production_price(0.05, vat_percent=0.0, fee=0.003) == pytest.approx(0.047)
 
 
-def test_make_tariff_captures_arguments():
-    tariff_22 = make_tariff(22.0, 0.0)
-    tariff_24 = make_tariff(24.0, 0.0)
-    assert tariff_22(0.05) != tariff_24(0.05)
+def test_production_price_with_vat():
+    assert production_price(0.05, vat_percent=24.0, fee=0.003) == pytest.approx(0.047 * 1.24)
+
+
+@pytest.mark.parametrize(
+    ("moment", "expected"),
+    [
+        (datetime(2009, 6, 30, 12, tzinfo=UTC), 18.0),
+        (datetime(2019, 1, 1, 12, tzinfo=UTC), 20.0),
+        # 22:00 UTC on 31 Dec 2023 is already 00:00 on 1 Jan 2024 in Tallinn.
+        (datetime(2023, 12, 31, 21, 59, tzinfo=UTC), 20.0),
+        (datetime(2023, 12, 31, 22, 0, tzinfo=UTC), 22.0),
+        # Summer time: midnight on 1 July 2025 in Tallinn is 21:00 UTC.
+        (datetime(2025, 6, 30, 20, 0, tzinfo=UTC), 22.0),
+        (datetime(2025, 6, 30, 21, 0, tzinfo=UTC), 24.0),
+        (datetime(2026, 10, 5, 12, tzinfo=UTC), 24.0),
+    ],
+)
+def test_estonia_vat_percent_follows_schedule_in_local_time(moment, expected):
+    assert estonia_vat_percent(moment) == expected
+
+
+def test_pricing_config_defaults_use_estonian_schedule_and_untaxed_production():
+    config = PricingConfig.from_options({})
+    assert config.vat_mode == VAT_MODE_ESTONIA
+    cost = config.tariff_for(Kind.CONSUMPTION)
+    comp = config.tariff_for(Kind.PRODUCTION)
+    assert cost(datetime(2025, 6, 1, tzinfo=UTC), 0.1) == pytest.approx(0.122)
+    assert cost(datetime(2025, 8, 1, tzinfo=UTC), 0.1) == pytest.approx(0.124)
+    assert comp(datetime(2025, 8, 1, tzinfo=UTC), 0.1) == pytest.approx(0.1)
+
+
+def test_pricing_config_custom_vat_and_production_settings():
+    config = PricingConfig.from_options(
+        {
+            CONF_VAT_MODE: VAT_MODE_CUSTOM,
+            CONF_VAT_PERCENT: 10.0,
+            CONF_MARGIN_EUR_PER_KWH: 0.01,
+            CONF_PRODUCTION_VAT: True,
+            CONF_PRODUCTION_FEE_EUR_PER_KWH: 0.02,
+        }
+    )
+    assert config.tariff_for(Kind.CONSUMPTION)(_HOUR, 0.1) == pytest.approx(0.121)
+    assert config.tariff_for(Kind.PRODUCTION)(_HOUR, 0.1) == pytest.approx(0.088)
+
+
+def test_make_tariff_returns_fixed_vat_consumption_tariff():
+    tariff = make_tariff(vat_percent=24.0, margin_eur_per_kwh=0.005)
+    assert tariff(_HOUR, 0.05) == pytest.approx(0.0682)
+    assert make_tariff(22.0, 0.0)(_HOUR, 0.05) != make_tariff(24.0, 0.0)(_HOUR, 0.05)
+
+
+def test_compute_cost_rows_uses_vat_of_each_hour():
+    # Two hours straddling the 22% → 24% change at local midnight.
+    before = datetime(2025, 6, 30, 20, tzinfo=UTC)
+    after = datetime(2025, 6, 30, 21, tzinfo=UTC)
+    tariff = PricingConfig().tariff_for(Kind.CONSUMPTION)
+    rows = compute_cost_rows_from_hourly(
+        {before: 1.0, after: 1.0}, {before: 0.1, after: 0.1}, tariff, prior_sum=0.0
+    )
+    assert [r["sum"] for r in rows] == [pytest.approx(0.122), pytest.approx(0.246)]
 
 
 def test_compute_cost_rows_single_hour():
@@ -105,10 +168,10 @@ def test_compute_cost_rows_aggregates_quarter_hour_intervals():
 def test_compute_cost_rows_applies_tariff():
     intervals = [_interval(10, consumption=2.0)]
     prices = {datetime(2026, 5, 21, 10, tzinfo=UTC): 0.05}
-    tariff = make_tariff(vat_percent=22.0, margin_eur_per_kwh=0.01)
+    tariff = make_tariff(vat_percent=24.0, margin_eur_per_kwh=0.01)
     rows = compute_cost_rows(intervals, Kind.CONSUMPTION, prices, tariff, prior_sum=0.0)
-    # tariff(0.05) = 0.05*1.22 + 0.01 = 0.071; * 2.0 kWh = 0.142
-    assert rows[0]["sum"] == pytest.approx(0.142)
+    # tariff(0.05) = (0.05 + 0.01) * 1.24 = 0.0744; * 2.0 kWh = 0.1488
+    assert rows[0]["sum"] == pytest.approx(0.1488)
 
 
 def test_compute_cost_rows_skips_missing_price_hours():

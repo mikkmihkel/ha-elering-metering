@@ -27,10 +27,15 @@ from .const import (
     CONF_CLIENT_SECRET,
     CONF_FRIENDLY_NAME,
     CONF_MARGIN_EUR_PER_KWH,
+    CONF_PRODUCTION_FEE_EUR_PER_KWH,
+    CONF_PRODUCTION_VAT,
+    CONF_VAT_MODE,
     CONF_VAT_PERCENT,
     DOMAIN,
     MAX_BACKFILL_MONTHS,
     MIN_BACKFILL_MONTHS,
+    PRICING_OPTION_KEYS,
+    VAT_MODE_CUSTOM,
     CommodityType,
 )
 from .coordinator import EstfeedCoordinator
@@ -42,6 +47,10 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON]
 
 STORAGE_VERSION = 1
+
+# Before config entry minor version 2 the tariff was ``spot * (1 + VAT) + margin``
+# for both consumption and production, with VAT defaulting to 22%.
+_LEGACY_DEFAULT_VAT_PERCENT = 22.0
 
 SERVICE_BACKFILL = "backfill_history"
 SERVICE_BACKFILL_SCHEMA = vol.Schema(
@@ -60,6 +69,33 @@ SERVICE_SET_CUMULATIVE_RESET_AT_SCHEMA = vol.Schema(
         vol.Optional("entry_id"): cv.string,
     }
 )
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate config entries created by older versions."""
+    if entry.version > 1:
+        # Created by a newer version of the integration; refuse to downgrade.
+        return False
+    if entry.minor_version < 2:
+        # Translate the legacy single-tariff options into the new model so
+        # that existing cost/compensation statistics keep exactly the same
+        # numbers: (spot + m/(1+v)) * (1+v) == spot * (1+v) + m. Users can
+        # switch to the Estonian VAT schedule from the options afterwards.
+        options = dict(entry.options)
+        vat = float(options.get(CONF_VAT_PERCENT, _LEGACY_DEFAULT_VAT_PERCENT))
+        net_margin = float(options.get(CONF_MARGIN_EUR_PER_KWH, 0.0)) / (1 + vat / 100)
+        options.update(
+            {
+                CONF_VAT_MODE: VAT_MODE_CUSTOM,
+                CONF_VAT_PERCENT: vat,
+                CONF_MARGIN_EUR_PER_KWH: net_margin,
+                CONF_PRODUCTION_VAT: True,
+                CONF_PRODUCTION_FEE_EUR_PER_KWH: -net_margin,
+            }
+        )
+        hass.config_entries.async_update_entry(entry, options=options, minor_version=2)
+        _LOGGER.info("Migrated Estfeed entry %s pricing options to version 1.2", entry.title)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -159,9 +195,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
     new_options = {**entry.data, **entry.options}
     coordinator.options = new_options
 
-    if old_options.get(CONF_VAT_PERCENT) != new_options.get(CONF_VAT_PERCENT) or old_options.get(
-        CONF_MARGIN_EUR_PER_KWH
-    ) != new_options.get(CONF_MARGIN_EUR_PER_KWH):
+    if any(old_options.get(key) != new_options.get(key) for key in PRICING_OPTION_KEYS):
         hass.async_create_background_task(
             coordinator.async_rebuild_cost(), name=f"{DOMAIN}_cost_rebuild"
         )

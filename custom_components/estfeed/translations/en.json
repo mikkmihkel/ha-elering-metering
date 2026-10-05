@@ -2,64 +2,164 @@
   "config": {
     "step": {
       "user": {
-        "title": "Estfeed",
-        "description": "Connect to your e-Elering API key",
+        "title": "Connect to Elering Estfeed",
+        "description": "Create an API key in the [Estfeed portal]({portal_url}) and enter its credentials below. The credentials are only sent to Elering.",
         "data": {
-          "client_id": "Client ID (UUID)",
+          "client_id": "Client ID",
           "client_secret": "Client secret",
-          "friendly_name": "Friendly name"
+          "friendly_name": "Installation name"
+        },
+        "data_description": {
+          "client_id": "The UUID shown for your API key in the Estfeed portal.",
+          "client_secret": "Shown when the API key is created. Kept only in your Home Assistant configuration and sent only to Elering's login service.",
+          "friendly_name": "Used in entity and statistic IDs, e.g. \"Home\" → estfeed:home_consumption_…. Cannot be changed later without losing history."
+        }
+      },
+      "pricing": {
+        "title": "Electricity price",
+        "description": "Costs are calculated from the hourly Nord Pool spot price for Estonia:\n\n**Cost** = (spot + margin) × (1 + VAT)\n**Compensation** = (spot − production fee) × (1 + VAT if enabled)\n\nYou can change these later under **Configure**.",
+        "data": {
+          "vat_mode": "VAT rate",
+          "vat_percent": "Custom VAT rate",
+          "margin_eur_per_kwh": "Seller margin and other per-kWh charges (excl. VAT)",
+          "production_vat": "Add VAT to production compensation",
+          "production_fee_eur_per_kwh": "Production fee deducted by the buyer (excl. VAT)",
+          "backfill_months": "History to import (months)"
+        },
+        "data_description": {
+          "vat_mode": "The Estonian schedule applies the rate in force on each day (20% until 2023, 22% in 2024 – June 2025, 24% from 1 July 2025), so imported history is priced correctly.",
+          "vat_percent": "Used only when the VAT rate is set to a custom value.",
+          "margin_eur_per_kwh": "Added to the Nord Pool spot price before VAT. Example: 0.0050 EUR/kWh = 0.5 cents/kWh. You can include network fees here if they are a flat per-kWh rate. Negative values are allowed.",
+          "production_vat": "Leave off unless you are VAT-registered and your electricity buyer pays you VAT on sold energy. Most households are not.",
+          "production_fee_eur_per_kwh": "Subtracted from the spot price for energy you sell to the grid. Example: 0.0030 EUR/kWh = 0.3 cents/kWh.",
+          "backfill_months": "Imported in the background after setup (1–84 months, 30 days each)."
         }
       },
       "reauth_confirm": {
         "title": "Re-authenticate Estfeed",
+        "description": "The API key for **{name}** was rejected. Enter a valid key from the [Estfeed portal]({portal_url}).",
         "data": {
-          "client_id": "Client ID (UUID)",
+          "client_id": "Client ID",
           "client_secret": "Client secret"
+        },
+        "data_description": {
+          "client_id": "The UUID shown for your API key in the Estfeed portal.",
+          "client_secret": "Shown when the API key is created. Kept only in your Home Assistant configuration and sent only to Elering's login service."
+        }
+      },
+      "reconfigure": {
+        "title": "Change API key",
+        "description": "Enter new API credentials for **{name}** from the [Estfeed portal]({portal_url}). History and entities are kept.",
+        "data": {
+          "client_id": "Client ID",
+          "client_secret": "Client secret"
+        },
+        "data_description": {
+          "client_id": "The UUID shown for your API key in the Estfeed portal.",
+          "client_secret": "Shown when the API key is created. Kept only in your Home Assistant configuration and sent only to Elering's login service."
         }
       }
     },
     "error": {
-      "invalid_auth": "Invalid client_id or client_secret",
-      "cannot_connect": "Could not reach the Estfeed API",
-      "slug_in_use": "Another Estfeed entry already uses this friendly name"
+      "invalid_auth": "Elering rejected the client ID or client secret.",
+      "cannot_connect": "Could not reach the Estfeed API. Try again later.",
+      "slug_in_use": "Another Estfeed installation already uses this name.",
+      "already_configured": "This API key is already used by another Estfeed installation."
     },
     "abort": {
-      "already_configured": "This API key is already configured"
+      "already_configured": "This API key is already configured.",
+      "reauth_successful": "Re-authentication was successful.",
+      "reconfigure_successful": "The API key was updated."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Estfeed options",
+        "description": "**Cost** = (spot + margin) × (1 + VAT)\n**Compensation** = (spot − production fee) × (1 + VAT if enabled)\n\nChanging a price setting recalculates the cost statistics for the history window in the background.",
         "data": {
-          "resolution": "Data resolution",
-          "backfill_months": "Backfill window (months)",
-          "vat_percent": "VAT percentage (%)",
-          "margin_eur_per_kwh": "Margin (EUR/kWh, can be negative)"
+          "vat_mode": "VAT rate",
+          "vat_percent": "Custom VAT rate",
+          "margin_eur_per_kwh": "Seller margin and other per-kWh charges (excl. VAT)",
+          "production_vat": "Add VAT to production compensation",
+          "production_fee_eur_per_kwh": "Production fee deducted by the buyer (excl. VAT)",
+          "backfill_months": "History to import (months)",
+          "resolution": "Data resolution"
+        },
+        "data_description": {
+          "vat_mode": "The Estonian schedule applies the rate in force on each day (20% until 2023, 22% in 2024 – June 2025, 24% from 1 July 2025), so imported history is priced correctly.",
+          "vat_percent": "Used only when the VAT rate is set to a custom value.",
+          "margin_eur_per_kwh": "Added to the Nord Pool spot price before VAT. Example: 0.0050 EUR/kWh = 0.5 cents/kWh. You can include network fees here if they are a flat per-kWh rate. Negative values are allowed.",
+          "production_vat": "Leave off unless you are VAT-registered and your electricity buyer pays you VAT on sold energy. Most households are not.",
+          "production_fee_eur_per_kwh": "Subtracted from the spot price for energy you sell to the grid. Example: 0.0030 EUR/kWh = 0.3 cents/kWh.",
+          "backfill_months": "Window used when recalculating costs. Use the backfill action to import more history.",
+          "resolution": "Hourly is recommended. 15-minute data makes more API calls; statistics are always hourly."
         }
+      }
+    }
+  },
+  "selector": {
+    "vat_mode": {
+      "options": {
+        "estonia": "Estonian standard rate (date-aware)",
+        "custom": "Custom fixed rate"
+      }
+    },
+    "resolution": {
+      "options": {
+        "one_hour": "Hourly",
+        "fifteen_min": "15 minutes"
       }
     }
   },
   "entity": {
     "sensor": {
-      "consumption_today": { "name": "Consumption today" },
-      "consumption_yesterday": { "name": "Consumption yesterday" },
-      "consumption_month_to_date": { "name": "Consumption month-to-date" },
-      "consumption_previous_month": { "name": "Consumption previous month" },
-      "production_today": { "name": "Production today" },
-      "production_yesterday": { "name": "Production yesterday" },
-      "production_month_to_date": { "name": "Production month-to-date" },
-      "production_previous_month": { "name": "Production previous month" },
-      "consumption_cumulative": { "name": "Cumulative consumption" },
-      "production_cumulative": { "name": "Cumulative production" },
-      "latest_interval": { "name": "Latest interval" }
+      "consumption_today": {
+        "name": "Consumption today"
+      },
+      "consumption_yesterday": {
+        "name": "Consumption yesterday"
+      },
+      "consumption_month_to_date": {
+        "name": "Consumption month-to-date"
+      },
+      "consumption_previous_month": {
+        "name": "Consumption previous month"
+      },
+      "production_today": {
+        "name": "Production today"
+      },
+      "production_yesterday": {
+        "name": "Production yesterday"
+      },
+      "production_month_to_date": {
+        "name": "Production month-to-date"
+      },
+      "production_previous_month": {
+        "name": "Production previous month"
+      },
+      "consumption_cumulative": {
+        "name": "Cumulative consumption"
+      },
+      "production_cumulative": {
+        "name": "Cumulative production"
+      },
+      "latest_interval": {
+        "name": "Latest interval"
+      }
     },
     "binary_sensor": {
-      "data_fresh": { "name": "Data fresh" }
+      "data_fresh": {
+        "name": "Data fresh"
+      }
     },
     "button": {
-      "consumption_cumulative_reset": { "name": "Reset cumulative consumption" },
-      "production_cumulative_reset": { "name": "Reset cumulative production" }
+      "consumption_cumulative_reset": {
+        "name": "Reset cumulative consumption"
+      },
+      "production_cumulative_reset": {
+        "name": "Reset cumulative production"
+      }
     }
   },
   "services": {
@@ -67,16 +167,28 @@
       "name": "Backfill history",
       "description": "Re-fetch and re-publish a wider window of long-term statistics.",
       "fields": {
-        "months": { "name": "Months", "description": "How many months of history to refetch (1-84)." },
-        "entry_id": { "name": "Config entry", "description": "Which Estfeed config entry to backfill." }
+        "months": {
+          "name": "Months",
+          "description": "How many months of history to refetch (1-84)."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which Estfeed config entry to backfill."
+        }
       }
     },
     "set_cumulative_reset_at": {
       "name": "Set cumulative reset_at",
       "description": "Move the cumulative-since-reset baseline to a specific timestamp (e.g. to restore a previous anchor). Restores both consumption and production baselines.",
       "fields": {
-        "reset_at": { "name": "Reset at", "description": "New anchor timestamp. The cumulative sensors will sum intervals from this moment forward." },
-        "entry_id": { "name": "Config entry", "description": "Which Estfeed config entry to update." }
+        "reset_at": {
+          "name": "Reset at",
+          "description": "New anchor timestamp. The cumulative sensors will sum intervals from this moment forward."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which Estfeed config entry to update."
+        }
       }
     }
   }
