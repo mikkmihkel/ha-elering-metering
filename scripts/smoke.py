@@ -1,6 +1,8 @@
 """Manual smoke test against the live Estfeed API.
 
-Usage: ESTFEED_CLIENT_ID=... ESTFEED_CLIENT_SECRET=... python scripts/smoke.py
+Usage: ESTFEED_CLIENT_ID=... ESTFEED_CLIENT_SECRET=... python -m scripts.smoke
+
+Meter IDs are masked in the output so it can be pasted into bug reports.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import aiohttp
 
 from custom_components.estfeed.api import EstfeedClient
 from custom_components.estfeed.const import Resolution
+from custom_components.estfeed.utils import mask_eic
 
 
 async def main() -> None:
@@ -25,7 +28,7 @@ async def main() -> None:
         meters = await client.list_metering_points(start, end)
         print(f"Found {len(meters)} meter(s):")
         for m in meters:
-            print(f"  {m.eic} ({m.commodity_type.value})")
+            print(f"  {mask_eic(m.eic)} ({m.commodity_type.value})")
         if meters:
             data = await client.get_metering_data(
                 start, end, Resolution.HOUR, eics=[m.eic for m in meters[:1]]

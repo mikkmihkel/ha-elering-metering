@@ -14,7 +14,7 @@ from custom_components.estfeed.const import CommodityType, Kind
 
 def _meter() -> MeteringPoint:
     return MeteringPoint(
-        eic="38ZEE-00720089-N",
+        eic="38ZEE-00000001-A",
         commodity_type=CommodityType.ELECTRICITY,
         periods=[Period(start=datetime(2019, 7, 27, 21, tzinfo=UTC), end=None)],
     )
@@ -30,9 +30,9 @@ async def test_reset_button_calls_coordinator():
     await button.async_press()
 
     coordinator.async_reset_cumulative.assert_awaited_once_with(
-        "38ZEE-00720089-N", Kind.CONSUMPTION
+        "38ZEE-00000001-A", Kind.CONSUMPTION
     )
-    assert button.unique_id == "estfeed_home_consumption_cumulative_reset_089n"
+    assert button.unique_id == "estfeed_home_consumption_cumulative_reset_001a"
 
 
 def test_production_reset_button_disabled_by_default():

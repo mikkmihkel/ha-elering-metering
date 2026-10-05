@@ -22,6 +22,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .api import AccountingInterval, MeteringPoint, interval_value
 from .const import ATTRIBUTION, DOMAIN, CommodityType, Kind
 from .coordinator import EstfeedCoordinator
+from .entity import meter_device_info
 from .statistics import eic_suffix
 
 if TYPE_CHECKING:
@@ -87,12 +88,7 @@ class _EstfeedEntity(CoordinatorEntity[EstfeedCoordinator]):
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._meter.eic)},
-            name=f"{self.coordinator.slug} ({self._meter.eic})",
-            manufacturer="Elering Estfeed",
-            model=self._meter.commodity_type.value,
-        )
+        return meter_device_info(self.coordinator, self._meter)
 
 
 class LaggingSensor(_EstfeedEntity, SensorEntity):

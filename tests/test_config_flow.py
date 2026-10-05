@@ -17,21 +17,39 @@ from custom_components.estfeed.api import (
     Period,
 )
 from custom_components.estfeed.const import (
+    CONF_BACKFILL_MONTHS,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_FRIENDLY_NAME,
     CONF_MARGIN_EUR_PER_KWH,
+    CONF_PRODUCTION_FEE_EUR_PER_KWH,
+    CONF_PRODUCTION_VAT,
+    CONF_VAT_MODE,
     CONF_VAT_PERCENT,
     DEFAULT_MARGIN_EUR_PER_KWH,
+    DEFAULT_VAT_MODE,
     DEFAULT_VAT_PERCENT,
     DOMAIN,
+    VAT_MODE_ESTONIA,
     CommodityType,
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_entry_setup():
+    """Flow tests stop at the config entry; never run the real entry setup.
+
+    Creating or reloading an entry schedules ``async_setup_entry``. Left
+    unpatched it would run after the test's API mocks are gone and race the
+    in-memory recorder teardown.
+    """
+    with patch("custom_components.estfeed.async_setup_entry", return_value=True):
+        yield
+
+
 def _meter() -> MeteringPoint:
     return MeteringPoint(
-        eic="38ZEE-00720089-N",
+        eic="38ZEE-00000001-A",
         commodity_type=CommodityType.ELECTRICITY,
         periods=[Period(start=datetime(2019, 7, 27, 21, tzinfo=UTC), end=None)],
     )
@@ -75,13 +93,90 @@ async def test_user_step_happy_path(hass):
             },
         )
 
-    assert result2["type"] == FlowResultType.CREATE_ENTRY
-    assert result2["title"] == "Home"
-    assert result2["data"] == {
+    assert result2["type"] == FlowResultType.FORM
+    assert result2["step_id"] == "pricing"
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_VAT_MODE: VAT_MODE_ESTONIA,
+            CONF_VAT_PERCENT: 24,
+            CONF_MARGIN_EUR_PER_KWH: 0.005,
+            CONF_PRODUCTION_VAT: False,
+            CONF_PRODUCTION_FEE_EUR_PER_KWH: 0.003,
+            CONF_BACKFILL_MONTHS: 6,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+    assert result3["title"] == "Home"
+    assert result3["data"] == {
         CONF_CLIENT_ID: "cid",
         CONF_CLIENT_SECRET: "csec",
         CONF_FRIENDLY_NAME: "Home",
     }
+    entry = result3["result"]
+    assert entry.minor_version == 2
+    assert entry.options == {
+        CONF_VAT_MODE: VAT_MODE_ESTONIA,
+        CONF_VAT_PERCENT: 24.0,
+        CONF_MARGIN_EUR_PER_KWH: 0.005,
+        CONF_PRODUCTION_VAT: False,
+        CONF_PRODUCTION_FEE_EUR_PER_KWH: 0.003,
+        CONF_BACKFILL_MONTHS: 6,
+    }
+
+
+@pytest.mark.asyncio
+async def test_user_step_strips_pasted_whitespace(hass):
+    await _setup_recorder(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    with patch(
+        "custom_components.estfeed.config_flow.EstfeedClient.list_metering_points",
+        new=AsyncMock(return_value=[_meter()]),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_CLIENT_ID: "  cid\n",
+                CONF_CLIENT_SECRET: " csec ",
+                CONF_FRIENDLY_NAME: " Home ",
+            },
+        )
+    assert result2["step_id"] == "pricing"
+    result3 = await hass.config_entries.flow.async_configure(result["flow_id"], user_input={})
+    assert result3["data"] == {
+        CONF_CLIENT_ID: "cid",
+        CONF_CLIENT_SECRET: "csec",
+        CONF_FRIENDLY_NAME: "Home",
+    }
+    # Unspecified pricing fields fall back to the documented defaults.
+    assert result3["options"][CONF_VAT_MODE] == VAT_MODE_ESTONIA
+    assert result3["options"][CONF_PRODUCTION_VAT] is False
+
+
+@pytest.mark.asyncio
+async def test_user_step_form_never_echoes_secret(hass):
+    """A failed submission re-renders the form without the secret in it."""
+    await _setup_recorder(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    with patch(
+        "custom_components.estfeed.config_flow.EstfeedClient.list_metering_points",
+        new=AsyncMock(side_effect=EstfeedAuthError("bad")),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_CLIENT_ID: "cid",
+                CONF_CLIENT_SECRET: "super-secret-value",
+                CONF_FRIENDLY_NAME: "Home",
+            },
+        )
+    assert "super-secret-value" not in repr(result2["data_schema"].schema)
 
 
 @pytest.mark.asyncio
@@ -203,6 +298,65 @@ async def test_reauth_flow_replaces_credentials(hass):
     assert result2["reason"] == "reauth_successful"
     assert entry.data[CONF_CLIENT_ID] == "new"
     assert entry.data[CONF_CLIENT_SECRET] == "new"
+    assert entry.unique_id == "new"
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_flow_replaces_credentials(hass):
+    await _setup_recorder(hass)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_CLIENT_ID: "old", CONF_CLIENT_SECRET: "old", CONF_FRIENDLY_NAME: "Home"},
+        unique_id="old",
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    with patch(
+        "custom_components.estfeed.config_flow.EstfeedClient.list_metering_points",
+        new=AsyncMock(return_value=[_meter()]),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_CLIENT_ID: "rotated", CONF_CLIENT_SECRET: "rotated-secret"},
+        )
+        # The reload is scheduled; let it finish while setup is still patched.
+        await hass.async_block_till_done()
+
+    assert result2["type"] == FlowResultType.ABORT
+    assert result2["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_CLIENT_ID] == "rotated"
+    assert entry.data[CONF_CLIENT_SECRET] == "rotated-secret"
+    assert entry.data[CONF_FRIENDLY_NAME] == "Home"
+    assert entry.unique_id == "rotated"
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_rejects_client_id_of_another_entry(hass):
+    await _setup_recorder(hass)
+    MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_CLIENT_ID: "taken", CONF_CLIENT_SECRET: "s", CONF_FRIENDLY_NAME: "Cabin"},
+        unique_id="taken",
+    ).add_to_hass(hass)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_CLIENT_ID: "mine", CONF_CLIENT_SECRET: "s", CONF_FRIENDLY_NAME: "Home"},
+        unique_id="mine",
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_CLIENT_ID: "taken", CONF_CLIENT_SECRET: "s"},
+    )
+    assert result2["type"] == FlowResultType.FORM
+    assert result2["errors"] == {"base": "already_configured"}
+    assert entry.data[CONF_CLIENT_ID] == "mine"
 
 
 @pytest.mark.asyncio
@@ -243,15 +397,17 @@ async def test_options_flow_persists_vat_and_margin(hass):
         "backfill_months": 12,
         CONF_VAT_PERCENT: 24.0,
         CONF_MARGIN_EUR_PER_KWH: 0.015,
+        CONF_PRODUCTION_VAT: True,
     }
     result = await hass.config_entries.options.async_configure(result["flow_id"], submission)
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options[CONF_VAT_PERCENT] == 24.0
     assert entry.options[CONF_MARGIN_EUR_PER_KWH] == 0.015
+    assert entry.options[CONF_PRODUCTION_VAT] is True
 
 
 @pytest.mark.asyncio
-async def test_options_flow_defaults_to_22_percent_vat_and_zero_margin(hass):
+async def test_options_flow_defaults_to_estonian_vat_and_zero_margin(hass):
     await _setup_recorder(hass)
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -267,5 +423,6 @@ async def test_options_flow_defaults_to_22_percent_vat_and_zero_margin(hass):
         for k in schema.schema
         if hasattr(k, "default") and hasattr(k, "schema")
     }
+    assert rendered[CONF_VAT_MODE] == DEFAULT_VAT_MODE
     assert rendered[CONF_VAT_PERCENT] == DEFAULT_VAT_PERCENT
     assert rendered[CONF_MARGIN_EUR_PER_KWH] == DEFAULT_MARGIN_EUR_PER_KWH

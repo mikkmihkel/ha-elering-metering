@@ -18,7 +18,9 @@ from custom_components.estfeed.const import (
     CONF_BACKFILL_MONTHS,
     CONF_MARGIN_EUR_PER_KWH,
     CONF_RESOLUTION,
+    CONF_VAT_MODE,
     CONF_VAT_PERCENT,
+    VAT_MODE_CUSTOM,
     CommodityType,
     Kind,
     Resolution,
@@ -27,7 +29,7 @@ from custom_components.estfeed.coordinator import CumulativeBaseline, EstfeedCoo
 from custom_components.estfeed.statistics import CostStream, compute_statistic_rows
 
 
-def _make_meter(eic: str = "38ZEE-00720089-N") -> MeteringPoint:
+def _make_meter(eic: str = "38ZEE-00000001-A") -> MeteringPoint:
     return MeteringPoint(
         eic=eic,
         commodity_type=CommodityType.ELECTRICITY,
@@ -71,7 +73,7 @@ async def test_coordinator_first_update_fetches_and_writes(hass):
     client.get_metering_data = AsyncMock(
         return_value=[
             MeterData(
-                eic="38ZEE-00720089-N",
+                eic="38ZEE-00000001-A",
                 intervals=_hourly(datetime(2026, 4, 28, 0, tzinfo=UTC), 24),
             )
         ]
@@ -113,7 +115,7 @@ async def test_coordinator_uses_latest_seen_as_start(hass, freezer):
     client = MagicMock()
     client.list_metering_points = AsyncMock(return_value=[_make_meter()])
     client.get_metering_data = AsyncMock(
-        return_value=[MeterData(eic="38ZEE-00720089-N", intervals=[])]
+        return_value=[MeterData(eic="38ZEE-00000001-A", intervals=[])]
     )
 
     coordinator = EstfeedCoordinator(
@@ -126,7 +128,7 @@ async def test_coordinator_uses_latest_seen_as_start(hass, freezer):
 
     last_seen_ts = datetime(2026, 4, 28, 23, tzinfo=UTC).timestamp()
     fake_last_stats = {
-        "estfeed:home_consumption_089n": [{"end": last_seen_ts * 1000}],  # ms
+        "estfeed:home_consumption_001a": [{"end": last_seen_ts * 1000}],  # ms
     }
 
     with (
@@ -162,7 +164,7 @@ async def test_coordinator_per_meter_error_is_skipped(hass):
     client.get_metering_data = AsyncMock(
         return_value=[
             MeterData(
-                eic="38ZEE-00720089-N",
+                eic="38ZEE-00000001-A",
                 intervals=[],
                 error=MeterError(id="x", message="m", code="c", trace_id="t", args=[]),
             )
@@ -204,7 +206,7 @@ async def test_coordinator_clears_stale_error_on_success(hass):
     client.get_metering_data = AsyncMock(
         return_value=[
             MeterData(
-                eic="38ZEE-00720089-N",
+                eic="38ZEE-00000001-A",
                 intervals=_hourly(datetime(2026, 4, 28, 0, tzinfo=UTC), 3),
             )
         ]
@@ -218,7 +220,7 @@ async def test_coordinator_clears_stale_error_on_success(hass):
     )
     coordinator.meters = [_make_meter()]
     # Pre-populate stale error state from a prior failed tick.
-    coordinator.last_meter_errors["38ZEE-00720089-N"] = "OLD_CODE"
+    coordinator.last_meter_errors["38ZEE-00000001-A"] = "OLD_CODE"
 
     with (
         patch(
@@ -236,7 +238,7 @@ async def test_coordinator_clears_stale_error_on_success(hass):
     ):
         await coordinator._async_update_data()
 
-    assert "38ZEE-00720089-N" not in coordinator.last_meter_errors
+    assert "38ZEE-00000001-A" not in coordinator.last_meter_errors
 
 
 @pytest.mark.asyncio
@@ -253,7 +255,7 @@ async def test_coordinator_chains_prior_sum_across_chunks_on_regular_tick(hass):
     client.get_metering_data = AsyncMock(
         return_value=[
             MeterData(
-                eic="38ZEE-00720089-N",
+                eic="38ZEE-00000001-A",
                 intervals=_hourly(datetime(2026, 1, 1, 0, tzinfo=UTC), 24),
             )
         ]
@@ -321,7 +323,7 @@ async def test_force_start_seeds_prior_sum_from_before_window(hass):
     client.get_metering_data = AsyncMock(
         return_value=[
             MeterData(
-                eic="38ZEE-00720089-N",
+                eic="38ZEE-00000001-A",
                 intervals=_hourly(datetime(2026, 1, 1, 0, tzinfo=UTC), 24),
             )
         ]
@@ -378,7 +380,7 @@ async def test_force_start_seeds_zero_when_no_prior_history(hass):
     client = MagicMock()
     client.list_metering_points = AsyncMock(return_value=[meter])
     client.get_metering_data = AsyncMock(
-        return_value=[MeterData(eic="38ZEE-00720089-N", intervals=[])]
+        return_value=[MeterData(eic="38ZEE-00000001-A", intervals=[])]
     )
 
     coordinator = EstfeedCoordinator(
@@ -421,7 +423,7 @@ async def test_initial_backfill_uses_backfill_months(hass):
     client = MagicMock()
     client.list_metering_points = AsyncMock(return_value=[_make_meter()])
     client.get_metering_data = AsyncMock(
-        return_value=[MeterData(eic="38ZEE-00720089-N", intervals=[])]
+        return_value=[MeterData(eic="38ZEE-00000001-A", intervals=[])]
     )
 
     coordinator = EstfeedCoordinator(
@@ -460,7 +462,7 @@ async def test_cache_warmup_populates_rolling_cache(hass):
     client = MagicMock()
     client.list_metering_points = AsyncMock(return_value=[_make_meter()])
     client.get_metering_data = AsyncMock(
-        return_value=[MeterData(eic="38ZEE-00720089-N", intervals=intervals)]
+        return_value=[MeterData(eic="38ZEE-00000001-A", intervals=intervals)]
     )
 
     coordinator = EstfeedCoordinator(
@@ -487,12 +489,12 @@ async def test_cache_warmup_populates_rolling_cache(hass):
     ):
         await coordinator.async_warm_cache()
 
-    cached = coordinator.cache[("38ZEE-00720089-N", Kind.CONSUMPTION)]
+    cached = coordinator.cache[("38ZEE-00000001-A", Kind.CONSUMPTION)]
     # The mock returns the same intervals for every chunk; the warmup window is split
     # into 31-day chunks so the cache gets called multiple times. _update_cache must
     # dedupe, so the bucket holds at most the unique intervals once.
     assert 0 < len(cached) <= len(intervals)
-    assert len(coordinator.cache[("38ZEE-00720089-N", Kind.PRODUCTION)]) <= len(intervals)
+    assert len(coordinator.cache[("38ZEE-00000001-A", Kind.PRODUCTION)]) <= len(intervals)
 
 
 @pytest.mark.asyncio
@@ -505,7 +507,7 @@ async def test_warm_cache_notifies_listeners(hass):
     client = MagicMock()
     client.list_metering_points = AsyncMock(return_value=[_make_meter()])
     client.get_metering_data = AsyncMock(
-        return_value=[MeterData(eic="38ZEE-00720089-N", intervals=[])]
+        return_value=[MeterData(eic="38ZEE-00000001-A", intervals=[])]
     )
     coordinator = EstfeedCoordinator(
         hass=hass,
@@ -536,7 +538,7 @@ async def test_initial_backfill_notifies_listeners(hass):
     client = MagicMock()
     client.list_metering_points = AsyncMock(return_value=[_make_meter()])
     client.get_metering_data = AsyncMock(
-        return_value=[MeterData(eic="38ZEE-00720089-N", intervals=[])]
+        return_value=[MeterData(eic="38ZEE-00000001-A", intervals=[])]
     )
     coordinator = EstfeedCoordinator(
         hass=hass,
@@ -579,7 +581,7 @@ def test_update_cache_dedupes_overlapping_writes(hass, freezer):
         slug="home",
         options={},
     )
-    eic = "38ZEE-00720089-N"
+    eic = "38ZEE-00000001-A"
     base = datetime(2026, 4, 7, 11, tzinfo=UTC)  # mimics first_refresh start
     first_refresh_data = _hourly(base, 24 * 30)  # 30 days, Apr 7 - May 7
     coordinator._update_cache(eic, Kind.CONSUMPTION, first_refresh_data)
@@ -617,7 +619,7 @@ def test_update_cache_replaces_null_with_later_value(hass, freezer):
         slug="home",
         options={},
     )
-    eic = "38ZEE-00720089-N"
+    eic = "38ZEE-00000001-A"
     t = datetime(2026, 5, 16, 0, tzinfo=UTC)
     null_first = [
         AccountingInterval(
@@ -656,7 +658,7 @@ def test_update_cache_trim_works_after_unsorted_appends(hass):
         slug="home",
         options={},
     )
-    eic = "38ZEE-00720089-N"
+    eic = "38ZEE-00000001-A"
     now = datetime.now(tz=UTC).replace(minute=0, second=0, microsecond=0)
     # First write: a recent slice that the trim should keep.
     recent = _hourly(now - timedelta(days=10), 24)
@@ -755,7 +757,7 @@ async def test_coordinator_filters_intervals_per_stream(hass):
     client = MagicMock()
     client.list_metering_points = AsyncMock(return_value=[meter])
     client.get_metering_data = AsyncMock(
-        return_value=[MeterData(eic="38ZEE-00720089-N", intervals=intervals)]
+        return_value=[MeterData(eic="38ZEE-00000001-A", intervals=intervals)]
     )
 
     coordinator = EstfeedCoordinator(
@@ -836,7 +838,7 @@ async def test_coordinator_fetch_start_bounded_by_caller_start(hass):
     client = MagicMock()
     client.list_metering_points = AsyncMock(return_value=[meter])
     client.get_metering_data = AsyncMock(
-        return_value=[MeterData(eic="38ZEE-00720089-N", intervals=[])]
+        return_value=[MeterData(eic="38ZEE-00000001-A", intervals=[])]
     )
 
     coordinator = EstfeedCoordinator(
@@ -886,7 +888,7 @@ async def test_coordinator_force_start_ignores_bound(hass):
     client = MagicMock()
     client.list_metering_points = AsyncMock(return_value=[meter])
     client.get_metering_data = AsyncMock(
-        return_value=[MeterData(eic="38ZEE-00720089-N", intervals=[])]
+        return_value=[MeterData(eic="38ZEE-00000001-A", intervals=[])]
     )
 
     coordinator = EstfeedCoordinator(
@@ -934,7 +936,7 @@ async def test_coordinator_snaps_request_start_to_top_of_hour(hass):
     client = MagicMock()
     client.list_metering_points = AsyncMock(return_value=[_make_meter()])
     client.get_metering_data = AsyncMock(
-        return_value=[MeterData(eic="38ZEE-00720089-N", intervals=[])]
+        return_value=[MeterData(eic="38ZEE-00000001-A", intervals=[])]
     )
 
     coordinator = EstfeedCoordinator(
@@ -981,10 +983,10 @@ async def test_ensure_baselines_captures_one_per_meter_kind(hass):
     coordinator.meters = [_make_meter()]
     await coordinator.async_ensure_baselines()
 
-    assert ("38ZEE-00720089-N", Kind.CONSUMPTION) in coordinator.baselines
-    assert ("38ZEE-00720089-N", Kind.PRODUCTION) in coordinator.baselines
+    assert ("38ZEE-00000001-A", Kind.CONSUMPTION) in coordinator.baselines
+    assert ("38ZEE-00000001-A", Kind.PRODUCTION) in coordinator.baselines
     # New baselines start with no frozen contribution.
-    assert coordinator.baselines[("38ZEE-00720089-N", Kind.CONSUMPTION)].frozen_sum == 0.0
+    assert coordinator.baselines[("38ZEE-00000001-A", Kind.CONSUMPTION)].frozen_sum == 0.0
 
 
 @pytest.mark.asyncio
@@ -994,7 +996,7 @@ async def test_ensure_baselines_does_not_overwrite_existing(hass):
     out the cumulative sensor."""
     coordinator = EstfeedCoordinator(hass=hass, client=MagicMock(), slug="home", options={})
     coordinator.meters = [_make_meter()]
-    key = ("38ZEE-00720089-N", Kind.CONSUMPTION)
+    key = ("38ZEE-00000001-A", Kind.CONSUMPTION)
     original = CumulativeBaseline(reset_at=datetime(2026, 1, 1, tzinfo=UTC), frozen_sum=42.0)
     coordinator.baselines[key] = original
 
@@ -1007,12 +1009,12 @@ async def test_ensure_baselines_does_not_overwrite_existing(hass):
 async def test_async_reset_cumulative_moves_reset_at_to_now(hass):
     coordinator = EstfeedCoordinator(hass=hass, client=MagicMock(), slug="home", options={})
     coordinator.meters = [_make_meter()]
-    key = ("38ZEE-00720089-N", Kind.CONSUMPTION)
+    key = ("38ZEE-00000001-A", Kind.CONSUMPTION)
     coordinator.baselines[key] = CumulativeBaseline(
         reset_at=datetime(2026, 1, 1, tzinfo=UTC), frozen_sum=150.0
     )
 
-    await coordinator.async_reset_cumulative("38ZEE-00720089-N", Kind.CONSUMPTION)
+    await coordinator.async_reset_cumulative("38ZEE-00000001-A", Kind.CONSUMPTION)
 
     new_baseline = coordinator.baselines[key]
     # reset_at advanced to "now-ish" (after Jan 1) and frozen_sum cleared so
@@ -1027,7 +1029,7 @@ def test_cumulative_since_reset_sums_cache_from_reset_at(hass):
     off an inflated prior_sum once pushed the running total up by thousands of
     kWh, but the per-hour interval values stayed correct."""
     coordinator = EstfeedCoordinator(hass=hass, client=MagicMock(), slug="home", options={})
-    eic = "38ZEE-00720089-N"
+    eic = "38ZEE-00000001-A"
     reset_at = datetime(2026, 5, 18, 12, tzinfo=UTC)
     coordinator.baselines[(eic, Kind.CONSUMPTION)] = CumulativeBaseline(reset_at=reset_at)
     # Three intervals: one before reset (excluded), two after (included)
@@ -1064,7 +1066,7 @@ def test_cumulative_since_reset_sums_cache_from_reset_at(hass):
 
 def test_cumulative_since_reset_returns_none_without_baseline(hass):
     coordinator = EstfeedCoordinator(hass=hass, client=MagicMock(), slug="home", options={})
-    assert coordinator.cumulative_since_reset("38ZEE-00720089-N", Kind.CONSUMPTION) is None
+    assert coordinator.cumulative_since_reset("38ZEE-00000001-A", Kind.CONSUMPTION) is None
 
 
 def test_cumulative_since_reset_includes_frozen_sum(hass):
@@ -1072,7 +1074,7 @@ def test_cumulative_since_reset_includes_frozen_sum(hass):
     captured into ``baseline.frozen_sum``. The cumulative sensor must add
     that frozen contribution to whatever is currently in the cache."""
     coordinator = EstfeedCoordinator(hass=hass, client=MagicMock(), slug="home", options={})
-    eic = "38ZEE-00720089-N"
+    eic = "38ZEE-00000001-A"
     coordinator.baselines[(eic, Kind.CONSUMPTION)] = CumulativeBaseline(
         reset_at=datetime(2026, 1, 1, tzinfo=UTC),
         frozen_sum=500.0,
@@ -1100,7 +1102,7 @@ def test_update_cache_folds_expiring_intervals_into_frozen_sum(hass):
     eligible expiring intervals (past reset_at, non-null) into the
     baseline's ``frozen_sum`` so the cumulative sensor remains correct."""
     coordinator = EstfeedCoordinator(hass=hass, client=MagicMock(), slug="home", options={})
-    eic = "38ZEE-00720089-N"
+    eic = "38ZEE-00000001-A"
     coordinator.baselines[(eic, Kind.CONSUMPTION)] = CumulativeBaseline(
         reset_at=datetime(2024, 1, 1, tzinfo=UTC),
     )
@@ -1134,7 +1136,7 @@ def test_update_cache_folds_expiring_intervals_into_frozen_sum(hass):
 
 def _gas_meter() -> MeteringPoint:
     return MeteringPoint(
-        eic="38ZEE-00720099-G",
+        eic="38ZEE-00000002-B",
         commodity_type=CommodityType.NATURAL_GAS,
         periods=[Period(start=datetime(2020, 1, 1, tzinfo=UTC), end=None)],
     )
@@ -1146,7 +1148,7 @@ def test_cost_streams_for_electricity_returns_two_streams(hass):
     streams = coord.cost_streams_for(_make_meter())
     assert len(streams) == 2
     ids = {s.statistic_id for s in streams}
-    assert ids == {"estfeed:home_cost_089n", "estfeed:home_compensation_089n"}
+    assert ids == {"estfeed:home_cost_001a", "estfeed:home_compensation_001a"}
     assert all(isinstance(s, CostStream) for s in streams)
     # hass.config.currency defaults to EUR in HA test fixtures
     assert all(s.unit in {"EUR", hass.config.currency} for s in streams)
@@ -1163,18 +1165,24 @@ def test_build_tariff_applies_configured_vat_and_margin(hass):
         hass=hass,
         client=MagicMock(),
         slug="home",
-        options={CONF_VAT_PERCENT: 22.0, CONF_MARGIN_EUR_PER_KWH: 0.01},
+        options={
+            CONF_VAT_MODE: VAT_MODE_CUSTOM,
+            CONF_VAT_PERCENT: 22.0,
+            CONF_MARGIN_EUR_PER_KWH: 0.01,
+        },
     )
-    tariff = coord._build_tariff()
-    # 0.05 * 1.22 + 0.01 = 0.071
-    assert tariff(0.05) == pytest.approx(0.071)
+    hour = datetime(2026, 5, 21, 10, tzinfo=UTC)
+    # (0.05 + 0.01) * 1.22 = 0.0732
+    assert coord._build_tariff(Kind.CONSUMPTION)(hour, 0.05) == pytest.approx(0.0732)
+    # Production defaults: no VAT, no fee → compensation equals spot.
+    assert coord._build_tariff(Kind.PRODUCTION)(hour, 0.05) == pytest.approx(0.05)
 
 
-def test_build_tariff_uses_defaults_when_options_missing(hass):
+def test_build_tariff_uses_estonian_vat_when_options_missing(hass):
     coord = EstfeedCoordinator(hass=hass, client=MagicMock(), slug="home", options={})
-    tariff = coord._build_tariff()
-    # Default VAT=22.0, margin=0.0 -> 0.05 * 1.22 = 0.061
-    assert tariff(0.05) == pytest.approx(0.061)
+    tariff = coord._build_tariff(Kind.CONSUMPTION)
+    assert tariff(datetime(2025, 1, 15, tzinfo=UTC), 0.05) == pytest.approx(0.061)
+    assert tariff(datetime(2026, 1, 15, tzinfo=UTC), 0.05) == pytest.approx(0.062)
 
 
 def test_last_nps_error_starts_none(hass):
@@ -1201,7 +1209,7 @@ async def test_fetch_meter_window_writes_cost_and_compensation_for_electricity(h
     client.get_metering_data = AsyncMock(
         return_value=[
             MeterData(
-                eic="38ZEE-00720089-N",
+                eic="38ZEE-00000001-A",
                 intervals=[_hour_interval(10, 2.0), _hour_interval(11, 3.0)],
                 error=None,
             )
@@ -1242,14 +1250,14 @@ async def test_fetch_meter_window_writes_cost_and_compensation_for_electricity(h
     assert mock_energy.await_count == 2
     assert mock_cost.await_count == 2
     cost_ids = {call.args[1].statistic_id for call in mock_cost.await_args_list}
-    assert cost_ids == {"estfeed:home_cost_089n", "estfeed:home_compensation_089n"}
+    assert cost_ids == {"estfeed:home_cost_001a", "estfeed:home_compensation_001a"}
 
 
 @pytest.mark.asyncio
 async def test_fetch_meter_window_skips_cost_for_gas_meter(hass):
     client = MagicMock()
     client.get_metering_data = AsyncMock(
-        return_value=[MeterData(eic="38ZEE-00720099-G", intervals=[], error=None)]
+        return_value=[MeterData(eic="38ZEE-00000002-B", intervals=[], error=None)]
     )
     coord = EstfeedCoordinator(hass=hass, client=client, slug="home", options={})
     coord.meters = [_gas_meter()]
@@ -1282,7 +1290,7 @@ async def test_fetch_meter_window_records_nps_error_on_failure(hass):
     client.get_metering_data = AsyncMock(
         return_value=[
             MeterData(
-                eic="38ZEE-00720089-N",
+                eic="38ZEE-00000001-A",
                 intervals=[_hour_interval(10, 2.0)],
                 error=None,
             )
@@ -1392,7 +1400,7 @@ async def test_tick_evicts_unsettled_nps_hours_before_pricing(hass):
     complete data."""
     client = MagicMock()
     client.get_metering_data = AsyncMock(
-        return_value=[MeterData(eic="38ZEE-00720089-N", intervals=[], error=None)]
+        return_value=[MeterData(eic="38ZEE-00000001-A", intervals=[], error=None)]
     )
     coord = EstfeedCoordinator(hass=hass, client=client, slug="home", options={})
     coord.meters = [_make_meter()]
@@ -1463,9 +1471,9 @@ async def test_sum_before_window_subtracts_change_over_window(hass):
     the series had just before the window start, with both queries bounded."""
     coordinator = EstfeedCoordinator(hass=hass, client=MagicMock(), slug="home", options={})
 
-    last_stats = {"estfeed:home_consumption_089n": [{"sum": 100.0}]}
+    last_stats = {"estfeed:home_consumption_001a": [{"sum": 100.0}]}
     during = {
-        "estfeed:home_consumption_089n": [
+        "estfeed:home_consumption_001a": [
             {"start": 1.0, "change": 2.0},
             {"start": 2.0, "change": 3.0},
         ]
@@ -1490,7 +1498,7 @@ async def test_sum_before_window_subtracts_change_over_window(hass):
         ),
     ):
         result = await coordinator._sum_before_window(
-            "estfeed:home_consumption_089n",
+            "estfeed:home_consumption_001a",
             datetime(2026, 1, 1, tzinfo=UTC),
             datetime(2026, 6, 1, tzinfo=UTC),
         )

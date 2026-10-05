@@ -26,6 +26,7 @@ from .const import (
     Kind,
     Resolution,
 )
+from .utils import error_detail
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -227,17 +228,18 @@ class EstfeedClient:
         try:
             status, payload = await self._request(method, path, params=params)
         except TimeoutError as err:
-            raise EstfeedTimeoutError(str(err)) from err
+            raise EstfeedTimeoutError(error_detail(err) or "Request timed out") from err
         except aiohttp.ClientError as err:
-            raise EstfeedConnectionError(str(err)) from err
+            raise EstfeedConnectionError(error_detail(err)) from err
 
         if status == 200:
             return payload
+        detail = f"{status}: {error_detail(payload)}"
         if status in (401, 403):
-            raise EstfeedAuthError(f"{status}: {payload}")
+            raise EstfeedAuthError(detail)
         if status == 429:
-            raise EstfeedRateLimitError(f"{status}: {payload}")
-        raise EstfeedAPIError(f"{status}: {payload}")
+            raise EstfeedRateLimitError(detail)
+        raise EstfeedAPIError(detail)
 
     async def list_metering_points(
         self,

@@ -9,9 +9,25 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ServiceValidationErr
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.estfeed import _async_register_services, async_setup_entry
+from custom_components.estfeed import (
+    _async_register_services,
+    async_migrate_entry,
+    async_setup_entry,
+)
 from custom_components.estfeed.api import EstfeedAuthError
-from custom_components.estfeed.const import CONF_CLIENT_ID, CONF_CLIENT_SECRET, DOMAIN
+from custom_components.estfeed.const import (
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
+    CONF_MARGIN_EUR_PER_KWH,
+    CONF_PRODUCTION_FEE_EUR_PER_KWH,
+    CONF_PRODUCTION_VAT,
+    CONF_VAT_MODE,
+    CONF_VAT_PERCENT,
+    DOMAIN,
+    VAT_MODE_CUSTOM,
+    Kind,
+)
+from custom_components.estfeed.pricing import PricingConfig
 
 
 @pytest.mark.parametrize("service", ["backfill_history", "set_cumulative_reset_at"])
@@ -69,3 +85,52 @@ async def test_setup_rejected_credentials_trigger_auth_failure(hass):
         pytest.raises(ConfigEntryAuthFailed),
     ):
         await async_setup_entry(hass, entry)
+
+
+@pytest.mark.parametrize(
+    "legacy_options",
+    [{}, {CONF_VAT_PERCENT: 24.0, CONF_MARGIN_EUR_PER_KWH: 0.0062}],
+)
+async def test_migration_preserves_legacy_tariff_numbers(hass, legacy_options):
+    """Entries from 0.2.x priced both directions as spot * (1 + VAT) + margin
+    (VAT default 22%). After migration the new model must give identical
+    prices so existing cost statistics stay consistent."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_CLIENT_ID: "cid", CONF_CLIENT_SECRET: "secret"},
+        options=legacy_options,
+        version=1,
+        minor_version=1,
+    )
+    entry.add_to_hass(hass)
+
+    assert await async_migrate_entry(hass, entry)
+
+    assert entry.minor_version == 2
+    assert entry.options[CONF_VAT_MODE] == VAT_MODE_CUSTOM
+    vat = legacy_options.get(CONF_VAT_PERCENT, 22.0)
+    margin = legacy_options.get(CONF_MARGIN_EUR_PER_KWH, 0.0)
+    config = PricingConfig.from_options(entry.options)
+    hour = datetime(2026, 5, 1, tzinfo=UTC)
+    for spot in (-0.01, 0.0, 0.0873):
+        legacy = spot * (1 + vat / 100) + margin
+        assert config.tariff_for(Kind.CONSUMPTION)(hour, spot) == pytest.approx(legacy)
+        assert config.tariff_for(Kind.PRODUCTION)(hour, spot) == pytest.approx(legacy)
+    assert entry.options[CONF_PRODUCTION_VAT] is True
+    assert entry.options[CONF_PRODUCTION_FEE_EUR_PER_KWH] == pytest.approx(
+        -entry.options[CONF_MARGIN_EUR_PER_KWH]
+    )
+
+
+async def test_migration_refuses_entries_from_newer_versions(hass):
+    entry = MockConfigEntry(domain=DOMAIN, data={}, version=2)
+    entry.add_to_hass(hass)
+    assert not await async_migrate_entry(hass, entry)
+
+
+async def test_migration_leaves_current_entries_untouched(hass):
+    options = {CONF_VAT_MODE: "estonia"}
+    entry = MockConfigEntry(domain=DOMAIN, data={}, options=options, version=1, minor_version=2)
+    entry.add_to_hass(hass)
+    assert await async_migrate_entry(hass, entry)
+    assert dict(entry.options) == options

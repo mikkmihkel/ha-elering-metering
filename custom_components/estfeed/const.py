@@ -14,15 +14,36 @@ CONF_FRIENDLY_NAME: Final = "friendly_name"
 CONF_RESOLUTION: Final = "resolution"
 CONF_BACKFILL_MONTHS: Final = "backfill_months"
 
-DEFAULT_FRIENDLY_NAME: Final = "Estfeed"
+DEFAULT_FRIENDLY_NAME: Final = "Home"
 DEFAULT_BACKFILL_MONTHS: Final = 12
 MAX_BACKFILL_MONTHS: Final = 84
 MIN_BACKFILL_MONTHS: Final = 1
 
+# Pricing options. Every per-kWh amount is entered excluding VAT; VAT is then
+# applied on top, so a VAT-rate change never requires re-entering the margin.
+CONF_VAT_MODE: Final = "vat_mode"
 CONF_VAT_PERCENT: Final = "vat_percent"
 CONF_MARGIN_EUR_PER_KWH: Final = "margin_eur_per_kwh"
-DEFAULT_VAT_PERCENT: Final = 22.0
+CONF_PRODUCTION_VAT: Final = "production_vat"
+CONF_PRODUCTION_FEE_EUR_PER_KWH: Final = "production_fee_eur_per_kwh"
+
+VAT_MODE_ESTONIA: Final = "estonia"
+VAT_MODE_CUSTOM: Final = "custom"
+
+DEFAULT_VAT_MODE: Final = VAT_MODE_ESTONIA
+DEFAULT_VAT_PERCENT: Final = 24.0
 DEFAULT_MARGIN_EUR_PER_KWH: Final = 0.0
+DEFAULT_PRODUCTION_VAT: Final = False
+DEFAULT_PRODUCTION_FEE_EUR_PER_KWH: Final = 0.0
+
+# Changing any of these rebuilds the cost/compensation statistics.
+PRICING_OPTION_KEYS: Final = (
+    CONF_VAT_MODE,
+    CONF_VAT_PERCENT,
+    CONF_MARGIN_EUR_PER_KWH,
+    CONF_PRODUCTION_VAT,
+    CONF_PRODUCTION_FEE_EUR_PER_KWH,
+)
 
 UPDATE_INTERVAL: Final = timedelta(hours=1)
 ROLLING_CACHE_DAYS: Final = 62

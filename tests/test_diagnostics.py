@@ -13,7 +13,7 @@ from custom_components.estfeed.const import CommodityType
 
 def _meter() -> MeteringPoint:
     return MeteringPoint(
-        eic="38ZEE-00720089-N",
+        eic="38ZEE-00000001-A",
         commodity_type=CommodityType.ELECTRICITY,
         periods=[Period(start=datetime(2019, 7, 27, 21, tzinfo=UTC), end=None)],
     )
@@ -93,13 +93,15 @@ async def test_diagnostics_redacts_secrets_and_eic_body(hass):
 
         coordinator = hass.data[DOMAIN][entry.entry_id]
         coordinator.last_meter_errors[_meter().eic] = "meter_error"
+        coordinator.last_exception = Exception(f"403: no access to {_meter().eic}")
+        coordinator.last_nps_error = f"NPS request failed for {_meter().eic}"
         diag = await async_get_config_entry_diagnostics(hass, entry)
 
     assert _meter().eic not in str(diag)
-    assert diag["coordinator"]["last_meter_errors"] == {"...REDACTED-089n": "meter_error"}
+    assert diag["coordinator"]["last_meter_errors"] == {"...REDACTED-001a": "meter_error"}
     assert diag["entry"]["data"][CONF_CLIENT_SECRET] == "**REDACTED**"
     assert diag["entry"]["data"][CONF_CLIENT_ID] == "**REDACTED**"
-    assert diag["meters"][0]["eic"].endswith("089n")
+    assert diag["meters"][0]["eic"].endswith("001a")
     assert "38ZEE" not in diag["meters"][0]["eic"]
 
 

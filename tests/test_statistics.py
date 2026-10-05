@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
@@ -10,6 +9,7 @@ import pytest
 
 from custom_components.estfeed.api import AccountingInterval
 from custom_components.estfeed.const import Kind
+from custom_components.estfeed.pricing import Tariff
 from custom_components.estfeed.statistics import (
     CostStream,
     StatisticStream,
@@ -23,7 +23,7 @@ from custom_components.estfeed.statistics import (
 
 
 def test_eic_suffix():
-    assert eic_suffix("38ZEE-00720089-N") == "089n"
+    assert eic_suffix("38ZEE-00000001-A") == "001a"
     assert eic_suffix("XYZW-12345678-AB") == "78ab"
 
 
@@ -33,23 +33,23 @@ def test_statistic_id_matches_ha_recorder_regex():
     import re
 
     sid = build_statistic_id(
-        "home", Kind.CONSUMPTION, eic_suffix("38ZEE-00720089-N"), multi_meter=False
+        "home", Kind.CONSUMPTION, eic_suffix("38ZEE-00000001-A"), multi_meter=False
     )
     assert re.fullmatch(r"[a-z0-9_]+:[a-z0-9_]+", sid), sid
 
 
 def test_build_statistic_id_single_meter():
     assert (
-        build_statistic_id("home", Kind.CONSUMPTION, "089n", multi_meter=False)
-        == "estfeed:home_consumption_089n"
+        build_statistic_id("home", Kind.CONSUMPTION, "001a", multi_meter=False)
+        == "estfeed:home_consumption_001a"
     )
 
 
 def test_build_statistic_id_multi_meter():
     # When multiple meters share an entry, suffix is appended even if slug carries it.
     assert (
-        build_statistic_id("home", Kind.PRODUCTION, "089n", multi_meter=True)
-        == "estfeed:home_production_089n"
+        build_statistic_id("home", Kind.PRODUCTION, "001a", multi_meter=True)
+        == "estfeed:home_production_001a"
     )
 
 
@@ -146,8 +146,8 @@ async def test_async_write_meter_statistics_calls_external_stats(hass):
         )
     ]
     stream = StatisticStream(
-        statistic_id="estfeed:home_consumption_089n",
-        name="Home consumption (38ZEE-00720089-N)",
+        statistic_id="estfeed:home_consumption_001a",
+        name="Home consumption (38ZEE-00000001-A)",
         unit="kWh",
         kind=Kind.CONSUMPTION,
     )
@@ -159,7 +159,7 @@ async def test_async_write_meter_statistics_calls_external_stats(hass):
 
     mock_add.assert_called_once()
     metadata, rows = mock_add.call_args.args[1], mock_add.call_args.args[2]
-    assert metadata["statistic_id"] == "estfeed:home_consumption_089n"
+    assert metadata["statistic_id"] == "estfeed:home_consumption_001a"
     assert metadata["source"] == "estfeed"
     assert metadata["unit_of_measurement"] == "kWh"
     assert metadata["has_sum"] is True
@@ -187,7 +187,7 @@ async def test_async_write_meter_statistics_sets_volume_unit_class_for_gas(hass)
         )
     ]
     stream = StatisticStream(
-        statistic_id="estfeed:home_consumption_089n",
+        statistic_id="estfeed:home_consumption_001a",
         name="Home consumption (gas)",
         unit="m³",
         kind=Kind.CONSUMPTION,
@@ -215,7 +215,7 @@ async def test_async_write_meter_statistics_noop_when_no_rows(hass):
         )
     ]
     stream = StatisticStream(
-        statistic_id="estfeed:home_consumption_089n",
+        statistic_id="estfeed:home_consumption_001a",
         name="x",
         unit="kWh",
         kind=Kind.CONSUMPTION,
@@ -260,8 +260,8 @@ def test_compute_statistic_rows_snaps_to_top_of_hour():
         assert s.minute == 0 and s.second == 0 and s.microsecond == 0
 
 
-def _flat_tariff() -> Callable[[float], float]:
-    return lambda spot: spot  # identity → easy arithmetic in tests
+def _flat_tariff() -> Tariff:
+    return lambda _hour, spot: spot  # identity → easy arithmetic in tests
 
 
 @pytest.mark.asyncio
@@ -277,8 +277,8 @@ async def test_async_write_cost_statistics_writes_eur_metadata(hass):
     ]
     prices = {datetime(2026, 5, 21, 10, tzinfo=UTC): 0.05}
     stream = CostStream(
-        statistic_id="estfeed:home_cost_089n",
-        name="Home cost (089n)",
+        statistic_id="estfeed:home_cost_001a",
+        name="Home cost (001a)",
         unit="EUR",
         kind=Kind.CONSUMPTION,
     )
@@ -291,12 +291,12 @@ async def test_async_write_cost_statistics_writes_eur_metadata(hass):
         )
     mock_add.assert_called_once()
     metadata, rows = mock_add.call_args.args[1], mock_add.call_args.args[2]
-    assert metadata["statistic_id"] == "estfeed:home_cost_089n"
+    assert metadata["statistic_id"] == "estfeed:home_cost_001a"
     assert metadata["unit_of_measurement"] == "EUR"
     assert metadata["has_sum"] is True
     assert metadata["has_mean"] is False
-    # No unit_class for monetary streams — unit_class is for unit conversion.
-    assert "unit_class" not in metadata
+    # Monetary streams have no unit class, declared explicitly as None.
+    assert metadata["unit_class"] is None
     assert len(rows) == 1
     assert rows[0]["sum"] == pytest.approx(0.10)
     assert result == pytest.approx(0.10)
@@ -316,7 +316,7 @@ async def test_async_write_cost_statistics_noop_when_no_priceable_rows(hass):
     ]
     prices: dict[datetime, float] = {}
     stream = CostStream(
-        statistic_id="estfeed:home_cost_089n",
+        statistic_id="estfeed:home_cost_001a",
         name="x",
         unit="EUR",
         kind=Kind.CONSUMPTION,
@@ -345,8 +345,8 @@ async def test_async_write_cost_statistics_from_hourly_prices_stored_energy(hass
         datetime(2026, 5, 21, 11, tzinfo=UTC): 0.05,
     }
     stream = CostStream(
-        statistic_id="estfeed:home_cost_089n",
-        name="Home cost (089n)",
+        statistic_id="estfeed:home_cost_001a",
+        name="Home cost (001a)",
         unit="EUR",
         kind=Kind.CONSUMPTION,
     )
@@ -360,7 +360,8 @@ async def test_async_write_cost_statistics_from_hourly_prices_stored_energy(hass
     mock_add.assert_called_once()
     metadata, rows = mock_add.call_args.args[1], mock_add.call_args.args[2]
     assert metadata["unit_of_measurement"] == "EUR"
-    assert "unit_class" not in metadata
+    # Monetary streams have no unit class, declared explicitly as None.
+    assert metadata["unit_class"] is None
     # cumulative: 2.0*0.05=0.10 then +1.0*0.05=0.15
     assert [r["sum"] for r in rows] == [pytest.approx(0.10), pytest.approx(0.15)]
     assert result == pytest.approx(0.15)

@@ -27,12 +27,12 @@ from custom_components.estfeed.const import KEYCLOAK_TOKEN_URL, CommodityType, R
 
 def test_metering_point_from_dict():
     raw = {
-        "eic": "38ZEE-00720089-N",
+        "eic": "38ZEE-00000001-A",
         "commodityType": "ELECTRICITY",
         "periods": [{"from": "2019-07-27T21:00:00Z"}],
     }
     mp = MeteringPoint.from_dict(raw)
-    assert mp.eic == "38ZEE-00720089-N"
+    assert mp.eic == "38ZEE-00000001-A"
     assert mp.commodity_type == CommodityType.ELECTRICITY
     assert mp.periods == [Period(start=datetime(2019, 7, 27, 21, 0, tzinfo=UTC), end=None)]
 
@@ -49,14 +49,14 @@ def test_metering_point_from_dict_with_period_end():
 
 def test_meter_data_from_dict():
     raw = {
-        "meteringPointEic": "38ZEE-00720089-N",
+        "meteringPointEic": "38ZEE-00000001-A",
         "accountingIntervals": [
             {"periodStart": "2026-04-27T00:00:00Z", "consumptionKwh": 0.348, "productionKwh": 0.0},
             {"periodStart": "2026-04-27T01:00:00Z", "consumptionKwh": 0.338, "productionKwh": 0.0},
         ],
     }
     md = MeterData.from_dict(raw)
-    assert md.eic == "38ZEE-00720089-N"
+    assert md.eic == "38ZEE-00000001-A"
     assert md.error is None
     assert len(md.intervals) == 2
     assert md.intervals[0].period_start == datetime(2026, 4, 27, 0, 0, tzinfo=UTC)
@@ -265,6 +265,27 @@ async def test_non_json_error_body_maps_to_status_exception(client):
             await client._request_json("GET", "/api/public/v1/x")
 
 
+async def test_error_message_is_short_and_masks_meter_ids(client):
+    """Error bodies end up in logs and diagnostics; keep them bounded and
+    never echo full EICs."""
+    with aioresponses() as mocked:
+        mocked.post(
+            KEYCLOAK_TOKEN_URL,
+            payload={"access_token": "t", "expires_in": 300, "token_type": "Bearer"},
+        )
+        mocked.get(
+            "https://estfeed.elering.ee/api/public/v1/x",
+            status=403,
+            payload={"message": "No access to 38ZEE-00000001-A", "padding": "x" * 5000},
+        )
+        with pytest.raises(EstfeedAuthError) as exc_info:
+            await client._request_json("GET", "/api/public/v1/x")
+    message = str(exc_info.value)
+    assert message.startswith("403: ")
+    assert "38ZEE-00000001-A" not in message
+    assert len(message) < 300
+
+
 async def test_empty_body_401_maps_to_auth_error(client):
     """Regression: empty response bodies on 401 should map to EstfeedAuthError."""
     with aioresponses() as mocked:
@@ -302,7 +323,7 @@ async def test_list_metering_points(client):
             "?startDateTime=2026-04-01T00:00:00Z&endDateTime=2026-04-29T00:00:00Z",
             payload=[
                 {
-                    "eic": "38ZEE-00720089-N",
+                    "eic": "38ZEE-00000001-A",
                     "commodityType": "ELECTRICITY",
                     "periods": [{"from": "2019-07-27T21:00:00Z"}],
                 }
@@ -313,7 +334,7 @@ async def test_list_metering_points(client):
             datetime(2026, 4, 29, tzinfo=UTC),
         )
         assert len(result) == 1
-        assert result[0].eic == "38ZEE-00720089-N"
+        assert result[0].eic == "38ZEE-00000001-A"
 
 
 async def test_get_metering_data_with_eics(client):
@@ -325,10 +346,10 @@ async def test_get_metering_data_with_eics(client):
         mocked.get(
             "https://estfeed.elering.ee/api/public/v1/metering-data"
             "?startDateTime=2026-04-27T00:00:00Z&endDateTime=2026-04-28T00:00:00Z"
-            "&resolution=one_hour&meteringPointEics=38ZEE-00720089-N",
+            "&resolution=one_hour&meteringPointEics=38ZEE-00000001-A",
             payload=[
                 {
-                    "meteringPointEic": "38ZEE-00720089-N",
+                    "meteringPointEic": "38ZEE-00000001-A",
                     "accountingIntervals": [
                         {
                             "periodStart": "2026-04-27T00:00:00Z",
@@ -343,10 +364,10 @@ async def test_get_metering_data_with_eics(client):
             datetime(2026, 4, 27, tzinfo=UTC),
             datetime(2026, 4, 28, tzinfo=UTC),
             Resolution.HOUR,
-            eics=["38ZEE-00720089-N"],
+            eics=["38ZEE-00000001-A"],
         )
         assert len(result) == 1
-        assert result[0].eic == "38ZEE-00720089-N"
+        assert result[0].eic == "38ZEE-00000001-A"
         assert len(result[0].intervals) == 1
         assert result[0].intervals[0].consumption_kwh == 0.348
 

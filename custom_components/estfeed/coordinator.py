@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict, deque
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -29,11 +28,7 @@ from .api import (
 )
 from .const import (
     CONF_BACKFILL_MONTHS,
-    CONF_MARGIN_EUR_PER_KWH,
     CONF_RESOLUTION,
-    CONF_VAT_PERCENT,
-    DEFAULT_MARGIN_EUR_PER_KWH,
-    DEFAULT_VAT_PERCENT,
     DOMAIN,
     MAX_DAYS_PER_REQUEST,
     ROLLING_CACHE_DAYS,
@@ -42,7 +37,7 @@ from .const import (
     Resolution,
 )
 from .nps import NPS_PRICE_SETTLE_HOURS, EleringNpsClient, NpsError
-from .pricing import make_tariff
+from .pricing import PricingConfig, Tariff
 from .statistics import (
     CostStream,
     StatisticStream,
@@ -52,6 +47,7 @@ from .statistics import (
     build_statistic_id,
     eic_suffix,
 )
+from .utils import mask_eic
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +142,11 @@ class EstfeedCoordinator(DataUpdateCoordinator[None]):
         self._store = store
 
     @property
+    def display_name(self) -> str:
+        """Human-readable installation name used in statistic names."""
+        return self.config_entry.title if self.config_entry is not None else self.slug
+
+    @property
     def resolution(self) -> Resolution:
         return Resolution(self.options.get(CONF_RESOLUTION, Resolution.HOUR.value))
 
@@ -186,23 +187,21 @@ class EstfeedCoordinator(DataUpdateCoordinator[None]):
         return [
             CostStream(
                 statistic_id=f"{DOMAIN}:{self.slug}_cost_{suffix}",
-                name=f"{self.slug} cost ({meter.eic})",
+                name=f"{self.display_name} cost {suffix.upper()}",
                 unit="EUR",
                 kind=Kind.CONSUMPTION,
             ),
             CostStream(
                 statistic_id=f"{DOMAIN}:{self.slug}_compensation_{suffix}",
-                name=f"{self.slug} compensation ({meter.eic})",
+                name=f"{self.display_name} compensation {suffix.upper()}",
                 unit="EUR",
                 kind=Kind.PRODUCTION,
             ),
         ]
 
-    def _build_tariff(self) -> Callable[[float], float]:
-        """Construct the curried tariff function from current options."""
-        vat = float(self.options.get(CONF_VAT_PERCENT, DEFAULT_VAT_PERCENT))
-        margin = float(self.options.get(CONF_MARGIN_EUR_PER_KWH, DEFAULT_MARGIN_EUR_PER_KWH))
-        return make_tariff(vat, margin)
+    def _build_tariff(self, kind: Kind) -> Tariff:
+        """Per-kWh price function for a cost (consumption) or compensation stream."""
+        return PricingConfig.from_options(self.options).tariff_for(kind)
 
     def streams_for(self, meter: MeteringPoint) -> list[StatisticStream]:
         suffix = eic_suffix(meter.eic)
@@ -213,7 +212,7 @@ class EstfeedCoordinator(DataUpdateCoordinator[None]):
                 statistic_id=build_statistic_id(
                     self.slug, k, suffix, multi_meter=len(self.meters) > 1
                 ),
-                name=f"{self.slug} {k.value} ({meter.eic})",
+                name=f"{self.display_name} {k.value} {suffix.upper()}",
                 unit=unit,
                 kind=k,
             )
@@ -290,7 +289,6 @@ class EstfeedCoordinator(DataUpdateCoordinator[None]):
         # hours fetched before all 4 quarters settle would otherwise live
         # in the cache as a partial mean forever).
         self._nps.clear_cache()
-        tariff = self._build_tariff()
         end = datetime.now(tz=UTC).replace(minute=0, second=0, microsecond=0)
         start = end - timedelta(days=self.backfill_months * 30)
 
@@ -325,7 +323,7 @@ class EstfeedCoordinator(DataUpdateCoordinator[None]):
                     cstream,
                     hourly_energy,
                     prices,
-                    tariff,
+                    self._build_tariff(cstream.kind),
                     prior_sum=prior_sum,
                 )
         self.async_update_listeners()
@@ -510,7 +508,7 @@ class EstfeedCoordinator(DataUpdateCoordinator[None]):
                     if force_start
                     else await self._prior_sum_for_stream(fake)
                 )
-        tariff = self._build_tariff() if cost_streams else None
+        tariffs = {cstream.kind: self._build_tariff(cstream.kind) for cstream in cost_streams}
         cursor = fetch_start
         while cursor < end:
             chunk_end = min(cursor + timedelta(days=MAX_DAYS_PER_REQUEST), end)
@@ -538,9 +536,11 @@ class EstfeedCoordinator(DataUpdateCoordinator[None]):
             for md in results:
                 if md.error is not None:
                     self.last_meter_errors[md.eic] = md.error.code
+                    # Log only the EIC suffix: logs are often pasted into
+                    # public bug reports.
                     _LOGGER.warning(
                         "Estfeed returned error for meter %s: %s (traceId=%s)",
-                        md.eic,
+                        mask_eic(md.eic),
                         md.error.code,
                         md.error.trace_id,
                     )
@@ -567,7 +567,7 @@ class EstfeedCoordinator(DataUpdateCoordinator[None]):
                         )
                     self._update_cache(meter.eic, stream.kind, relevant)
                 # Cost streams (electricity only, prices available)
-                if write_stats and cost_streams and prices is not None and tariff is not None:
+                if write_stats and cost_streams and prices is not None:
                     for cstream in cost_streams:
                         threshold = cost_per_stream_start[cstream.statistic_id]
                         relevant_c = (
@@ -580,7 +580,7 @@ class EstfeedCoordinator(DataUpdateCoordinator[None]):
                             cstream,
                             relevant_c,
                             prices,
-                            tariff,
+                            tariffs[cstream.kind],
                             prior_sum=cost_prior_sums[cstream.statistic_id],
                         )
             cursor = chunk_end
@@ -746,7 +746,7 @@ class EstfeedCoordinator(DataUpdateCoordinator[None]):
                 )
                 loaded += 1
             except (KeyError, ValueError) as err:
-                _LOGGER.warning("Skipping malformed baseline entry %r: %s", raw_key, err)
+                _LOGGER.warning("Skipping malformed stored baseline: %s", err)
         _LOGGER.info("Loaded %d baseline(s) from storage", loaded)
 
     async def _flush_baselines_if_dirty(self) -> None:
