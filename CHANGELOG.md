@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- With 15-minute data resolution, each quarter hour is priced at its own spot price instead of the hourly average, matching how Estonian sellers settle since October 2025. Hourly resolution is unchanged. Run `estfeed.backfill_history` to recalculate past cost statistics.
+
 ## [0.3.0] - 2026-10-05
 
 First release of this fork of [tehisain/ha-estfeed](https://github.com/tehisain/ha-estfeed) (0.2.5).
