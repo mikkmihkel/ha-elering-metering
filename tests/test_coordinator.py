@@ -128,7 +128,7 @@ async def test_coordinator_uses_latest_seen_as_start(hass, freezer):
 
     last_seen_ts = datetime(2026, 4, 28, 23, tzinfo=UTC).timestamp()
     fake_last_stats = {
-        "estfeed:home_consumption_001a": [{"end": last_seen_ts * 1000}],  # ms
+        "estfeed:home_consumption_001a": [{"end": last_seen_ts}],  # seconds, as recorder returns
     }
 
     with (

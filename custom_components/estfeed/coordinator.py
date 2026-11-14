@@ -594,10 +594,13 @@ class EstfeedCoordinator(DataUpdateCoordinator[None]):
         rows = last_stats.get(stream.statistic_id)
         if not rows:
             return None
-        end_ms = rows[0].get("end")
-        if end_ms is None:
+        # Recorder's Python API returns epoch SECONDS (only the websocket API
+        # converts to ms). Reading it as ms put the resume point in 1970, so
+        # every tick re-wrote the last 30 days on top of the latest sum.
+        end = rows[0].get("end")
+        if end is None:
             return None
-        return datetime.fromtimestamp(end_ms / 1000.0, tz=UTC)
+        return datetime.fromtimestamp(float(end), tz=UTC)
 
     async def _prior_sum_for_stream(self, stream: StatisticStream) -> float:
         last_stats = await get_instance(self.hass).async_add_executor_job(
