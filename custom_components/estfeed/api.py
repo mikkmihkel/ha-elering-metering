@@ -291,7 +291,7 @@ class EstfeedClient:
         params: dict[str, Any] = {
             "startDateTime": start.astimezone(UTC).isoformat().replace("+00:00", "Z"),
             "endDateTime": end.astimezone(UTC).isoformat().replace("+00:00", "Z"),
-            "resolution": resolution.value,
+            "resolution": resolution.api_value,
         }
         if eic_list:
             params["meteringPointEics"] = ",".join(eic_list)
