@@ -78,13 +78,22 @@ ATTRIBUTION: Final = "Data provided by Elering Estfeed"
 
 
 class Resolution(StrEnum):
-    """API resolution values."""
+    """Resolution option values, stored in config entries; see ``api_value`` for the API."""
 
     QUARTER_HOUR = "fifteen_min"
     HOUR = "one_hour"
     DAY = "one_day"
     WEEK = "one_week"
     MONTH = "one_month"
+
+    @property
+    def api_value(self) -> str:
+        """Value for the metering-data ``resolution`` parameter.
+
+        Estfeed rejects ``fifteen_min`` (400, no enum constant FIFTEEN_MIN) and accepts
+        ``fifteen_minutes``. The option value stays ``fifteen_min`` so saved entries keep working.
+        """
+        return "fifteen_minutes" if self is Resolution.QUARTER_HOUR else self.value
 
 
 class Kind(StrEnum):

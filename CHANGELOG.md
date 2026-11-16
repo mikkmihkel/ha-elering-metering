@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **15-minute data resolution did not work.** Estfeed rejects the resolution value `fifteen_min` with `400 No enum constant ...MeteringResolutionDto.FIFTEEN_MIN`, so with 15-minute data every import, backfill and cost rebuild failed. The integration now sends `fifteen_minutes`, which Estfeed accepts. Saved settings keep working unchanged. Reported in [tehisain/ha-estfeed#8](https://github.com/tehisain/ha-estfeed/issues/8).
+
 ## [0.4.1] - 2026-11-15
 
 ### Fixed

@@ -378,6 +378,33 @@ async def test_get_metering_data_with_eics(client):
         assert result[0].intervals[0].consumption_kwh == 0.348
 
 
+async def test_get_metering_data_quarter_hour_sends_fifteen_minutes(client):
+    with aioresponses() as mocked:
+        mocked.post(
+            KEYCLOAK_TOKEN_URL,
+            payload={"access_token": "t", "expires_in": 300, "token_type": "Bearer"},
+        )
+        mocked.get(
+            "https://estfeed.elering.ee/api/public/v1/metering-data"
+            "?startDateTime=2026-04-27T00:00:00Z&endDateTime=2026-04-27T01:00:00Z"
+            "&resolution=fifteen_minutes",
+            payload=[{"meteringPointEic": "38ZEE-00000001-A", "accountingIntervals": []}],
+        )
+        result = await client.get_metering_data(
+            datetime(2026, 4, 27, tzinfo=UTC),
+            datetime(2026, 4, 27, 1, tzinfo=UTC),
+            Resolution.QUARTER_HOUR,
+        )
+        assert result[0].eic == "38ZEE-00000001-A"
+
+
+def test_resolution_option_values_are_stable():
+    # Saved config entries hold the option value; only the API value changed.
+    assert Resolution("fifteen_min") is Resolution.QUARTER_HOUR
+    assert Resolution.QUARTER_HOUR.api_value == "fifteen_minutes"
+    assert Resolution.HOUR.api_value == "one_hour"
+
+
 async def test_get_metering_data_too_many_eics_raises(client):
     with pytest.raises(ValueError, match="up to 10"):
         await client.get_metering_data(
